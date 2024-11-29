@@ -1,0 +1,48 @@
+stages:
+  - build
+  - deploy
+
+variables:
+  DOCKER_IMAGE: "nist775hit/hl7-igamt-2"
+  PROFILE: "default"
+  MONGO_INITDB_DATABASE: "hl7-auth-db"
+  AUTH_HOST: "http://hl7-reverse-proxy:8102/auth/"
+  HOST_URL: "http://localhost:8102"
+  VOCAB_URL: "http://hit-dev.nist.gov:8095/vocabulary-service/"
+
+
+
+generate_jar:
+  stage: build
+  image: node:18
+  script:
+    - npm install -g @angular/cli@7.2.4
+    - node buildDependenciesRecursive.js
+  artifacts:
+    paths:
+      - hl7-igamt/bootstrap/target/hl7-igamt.jar
+    expire_in: 1 hour
+
+build_and_push_docker_image:
+  stage: deploy
+  image: docker:24.0.2
+  services:
+    - docker:24.0.2-dind
+  before_script:
+    - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+  script:
+    - cp hl7-igamt/bootstrap/target/hl7-igamt.jar .
+    - cp -r dist/ . # Include Angular build output if needed
+    - docker build \
+        --build-arg PROFILE=$PROFILE \
+        --build-arg MONGO_INITDB_DATABASE=$MONGO_INITDB_DATABASE \
+        --build-arg AUTH_HOST=$AUTH_HOST \
+        --build-arg HOST_URL=$HOST_URL \
+        --build-arg VOCAB_URL=$VOCAB_URL \
+        -t $DOCKER_IMAGE:latest .
+    - docker push $DOCKER_IMAGE:latest
+  dependencies:
+    - generate_jar
+    - build_angular_project
+  only:
+    - develop
